@@ -92,6 +92,16 @@ final class Store: ObservableObject {
     @Published var speed: Double = 0
     @Published var activeID: UUID?
     @Published var dropActive = false
+    private var usbMonitor: USBMonitor?
+    var usbSnapshot: () -> [USBIdentity]? = USBMonitor.snapshot
+    var helperOverride: URL?
+    private var observedUSBs = Set<USBIdentity>()
+    private var activeUSB: USBIdentity?
+    private var retiringConnection = false
+    private var shuttingDown = false
+    private var reconnectAttempts = 0
+    private var pingToken: UUID?
+    var connectionGeneration: UUID { operation }
     private var process: Process?
     private var commandInput: FileHandle?
     private var sessionReady = false
@@ -161,17 +171,101 @@ final class Store: ObservableObject {
         jobs[i].state = .queued; persist()
     }
     func clearFinished() { guard !busy else { return }; jobs.removeAll { $0.state == .sent }; persist() }
-    func scan() {
-        guard !busy else { return }
-        if sessionReady, let p = process, p.isRunning {
-            status = "Switch подключён · MTP-сессия открыта"
+    func startUSBMonitoring() {
+        usbMonitor = USBMonitor { [weak self] devices in self?.observeUSB(devices) }
+    }
+    func observeUSB(_ devices: [USBIdentity]) {
+        let current=Set(devices)
+        let attached=current.subtracting(observedUSBs).contains(where:{$0.isMTP})
+        observedUSBs=current
+        guard !shuttingDown else {return}
+        if let active=activeUSB, !current.contains(active) {
+            retireConnection(l("Switch отключён. Ожидаю подключения…","Switch disconnected. Waiting for reconnection…"))
             return
         }
-        devices = []; selected = ""; remoteStorages = []; browserStorageID = 0; browserPath = []; entries = []; problem = ""; status = "Ищу Switch…"
-        run(["session"], transfer: false)
+        if sessionReady, activeUSB==nil, let d=device {
+            activeUSB=devices.first(where:{$0.matches(d)})
+            if activeUSB==nil {retireConnection(l("Switch отключён. Ожидаю подключения…","Switch disconnected. Waiting for reconnection…"));return}
+        }
+        if attached && !busy && !retiringConnection && process==nil {
+            reconnectAttempts=3; scheduleConnection()
+        }
+    }
+    private func connectionPresent() -> Bool {
+        guard let snapshot=usbSnapshot() else {return true} // Don't interrupt a write on a registry-query error.
+        if let active=activeUSB {return snapshot.contains(active)}
+        guard let d=device else {return false}
+        return snapshot.contains(where:{$0.matches(d)})
+    }
+    private func clearConnectionState(interrupted: Bool) {
+        for i in jobs.indices where jobs[i].state == .sending {jobs[i].state=interrupted ? .interrupted : .failed}
+        sessionReady=false;activeUSB=nil;pingToken=nil;pendingDeletion=nil
+        busy=false;transferring=false;stopping=false;fsActive=false;fsCommand=""
+        devices=[];selected="";remoteStorages=[];browserStorageID=0;browserPath=[];entries=[];selectedEntryID=nil
+        activeJobs=[];activeID=nil;sent=0;currentSize=0;speed=0;currentName=""
+        endActivity();persist()
+    }
+    private func scheduleConnection() {
+        let generation=operation
+        DispatchQueue.main.asyncAfter(deadline:.now()+0.5) { [weak self] in
+            guard let self=self, self.operation==generation, !self.shuttingDown, !self.retiringConnection, !self.busy, self.process==nil else {return}
+            self.connectNewSession()
+        }
+    }
+    private func connectNewSession() {
+        guard !busy, !retiringConnection, !shuttingDown, process==nil else {return}
+        if let snapshot=usbSnapshot(), !snapshot.contains(where:{$0.isMTP}) {
+            status=l("Подключите Switch и запустите MTP в DBI","Connect your Switch and start MTP in DBI");return
+        }
+        devices=[];selected="";remoteStorages=[];browserStorageID=0;browserPath=[];entries=[];selectedEntryID=nil
+        problem="";status="Ищу Switch…";run(["session"],transfer:false)
+    }
+    private func retireConnection(_ reason: String) {
+        guard !retiringConnection, !shuttingDown else {return}
+        let old=process
+        operation=UUID();let generation=operation // Detach all events from the old helper immediately.
+        retiringConnection=true;process=nil
+        try? commandInput?.close();commandInput=nil
+        clearConnectionState(interrupted:true);problem="";status=reason;log(reason);reconnectAttempts=3
+        if let old=old, old.isRunning {
+            kill(old.processIdentifier,SIGTERM)
+            // Only a missing USB device or a read-only health check reaches this path.
+            DispatchQueue.main.asyncAfter(deadline:.now()+2) {if old.isRunning {kill(old.processIdentifier,SIGKILL)}}
+            DispatchQueue.global(qos:.utility).async {
+                old.waitUntilExit()
+                DispatchQueue.main.async {
+                    guard self.operation==generation else {return}
+                    self.retiringConnection=false;self.scheduleConnection()
+                }
+            }
+        } else {
+            retiringConnection=false;scheduleConnection()
+        }
+    }
+    private func usableSession() -> Bool {
+        guard sessionReady, let p=process, p.isRunning else {return false}
+        guard connectionPresent() else {
+            retireConnection(l("Switch отключён. Ожидаю подключения…","Switch disconnected. Waiting for reconnection…"));return false
+        }
+        return true
+    }
+    func scan() {
+        guard !busy, !retiringConnection, !shuttingDown else {return}
+        if sessionReady {
+            guard usableSession(), let input=commandInput else {return}
+            let token=UUID();pingToken=token;busy=true;status=l("Проверяю MTP-сессию…","Checking the MTP session…")
+            do {try input.write(contentsOf:encodeCommand(["ping"]))}
+            catch {retireConnection(l("Соединение устарело. Переподключаю…","Session expired. Reconnecting…"));return}
+            DispatchQueue.main.asyncAfter(deadline:.now()+3) {
+                if self.pingToken==token {self.retireConnection(l("DBI не отвечает. Переподключаю…","DBI is not responding. Reconnecting…"))}
+            }
+            return
+        }
+        if process != nil {retireConnection(l("Переподключаю Switch…","Reconnecting Switch…"));return}
+        reconnectAttempts=3;connectNewSession()
     }
     func start() {
-        guard ready, let d = device else { return }
+        guard ready, usableSession(), let d = device else { return }
         problem = ""
         let list = pending
         // Validate all files before opening a write session; helper checks again using fstat.
@@ -204,7 +298,7 @@ final class Store: ObservableObject {
     }
     func requestFS(_ args: [String], transfer: Bool) {
         guard !busy else { return }
-        guard sessionReady, let p = process, p.isRunning, let input = commandInput else { problem = l("Сначала подключите Switch.", "Connect your Switch first."); return }
+        guard usableSession(), let input = commandInput else { problem = l("Сначала подключите Switch.", "Connect your Switch first."); return }
         let command = encodeCommand(args)
         guard command.count <= 4 * 1024 * 1024 + 4 else { problem = l("Слишком много файлов. Загрузите их несколькими партиями.","Too many files. Upload them in smaller batches."); return }
         problem = ""; fsCommand = args[0]; fsActive = true; busy = true; transferring = transfer; stopping = false
@@ -237,9 +331,15 @@ final class Store: ObservableObject {
                 remoteStorages.append(RemoteStorage(id:id,label:e["label"] as? String ?? "",writable:e["writable"] as? Bool ?? false,install:e["install"] as? Bool ?? false,free:(e["free"] as? NSNumber)?.int64Value ?? 0))
             }
         case "ready":
-            sessionReady = true; busy = false; status = msg; log(msg)
+            sessionReady = true; busy = false; status = msg; log(msg); reconnectAttempts=0
+            if let d=device {activeUSB=usbSnapshot()?.first(where:{$0.matches(d)})}
             browserStorageID = remoteStorages.first(where:{$0.writable})?.id ?? remoteStorages.first(where:{!$0.install})?.id ?? 0
-            if viewMode == "files" { DispatchQueue.main.async { self.loadFolder() } }
+            if viewMode == "files" { let generation=operation;DispatchQueue.main.async {if self.operation==generation {self.loadFolder()}} }
+        case "pong":
+            pingToken=nil;busy=false;problem="";status="Switch подключён · MTP-сессия открыта"
+            if viewMode=="files" {let generation=operation;DispatchQueue.main.async {if self.operation==generation {self.loadFolder()}}}
+        case "sessionlost":
+            retireConnection(l("Соединение устарело. Переподключаю…","Session expired. Reconnecting…"))
         case "listbegin": entries = []
         case "entry":
             if let id=e["id"] as? Int, let storage=e["storage"] as? Int {
@@ -258,7 +358,7 @@ final class Store: ObservableObject {
         case "fsdone":
             if fsCommand == "deleteplan" {
                 gotDone=true; busy=false; transferring=false; fsActive=false; endActivity()
-                if let plan=pendingDeletion { DispatchQueue.main.async { self.confirmDeletion(plan) } }
+                if let plan=pendingDeletion {let generation=operation;DispatchQueue.main.async {if self.operation==generation {self.confirmDeletion(plan)}}}
                 break
             }
             if fsCommand == "deletecancel" {
@@ -267,7 +367,7 @@ final class Store: ObservableObject {
             let refresh = fsCommand != "list"
             gotDone=true; busy=false; transferring=false; fsActive=false; stopping=false; speed=0
             status = refresh ? "File operation complete" : "Folder loaded"; endActivity()
-            if refresh { log(status); DispatchQueue.main.async { self.loadFolder() } }
+            if refresh {log(status);let generation=operation;DispatchQueue.main.async {if self.operation==generation {self.loadFolder()}}}
         case "operror":
             gotError=true; busy=false; transferring=false; fsActive=false; stopping=false; problem=msg; status=msg; log(msg); endActivity()
         case "batchdone":
@@ -299,7 +399,7 @@ final class Store: ObservableObject {
         }
     }
     func run(_ arguments: [String], transfer: Bool) {
-        guard let helper = Bundle.main.url(forAuxiliaryExecutable: "mtp-helper") else { problem = l("В приложении отсутствует MTP-модуль.","The MTP helper is missing from the application."); endActivity(); return }
+        guard let helper = helperOverride ?? Bundle.main.url(forAuxiliaryExecutable: "mtp-helper") else { problem = l("В приложении отсутствует MTP-модуль.","The MTP helper is missing from the application."); endActivity(); return }
         let p = Process(); p.executableURL = helper; p.arguments = arguments
         let output = Pipe(), error = Pipe(); p.standardOutput = output; p.standardError = error
         let input = Pipe(); p.standardInput = input
@@ -351,15 +451,20 @@ final class Store: ObservableObject {
         if !gotDone && !gotCancelled && !gotError {
             problem = l("MTP-модуль завершился без подтверждения (код \(exit)). Проверьте DBI и обновите подключение.","The MTP helper exited without confirmation (code \(exit)). Check DBI and reconnect.")
         }
-        if !transfer && !devices.isEmpty { status = "Switch подключён · установка на SD" }
+        if !transfer && !devices.isEmpty {status=l("MTP-сессия закрыта","MTP session closed")}
         if gotError { status = "\(transfer ? "Передача остановлена" : "Подключение не готово")" }
         busy = false; transferring = false; stopping = false; process = nil; activeID = nil; speed = 0
         persist(); endActivity()
-        sessionReady = false; devices = []; selected = ""; remoteStorages = []; fsActive = false
+        sessionReady = false;activeUSB=nil;pingToken=nil;pendingDeletion=nil
+        devices=[];selected="";remoteStorages=[];browserStorageID=0;browserPath=[];entries=[];selectedEntryID=nil;fsActive=false
         try? commandInput?.close(); commandInput = nil
+        if !shuttingDown && reconnectAttempts>0 {
+            reconnectAttempts-=1;scheduleConnection()
+        }
     }
     func disconnect() {
         guard !transferring else { return }
+        shuttingDown=true;usbMonitor=nil;reconnectAttempts=0;pingToken=nil
         if let input = commandInput { try? input.write(contentsOf: encodeCommand(["quit"])); try? input.close() }
         commandInput = nil
     }
@@ -435,7 +540,7 @@ struct ContentView: View {
             }
             Spacer(minLength:0)
             Text(l("Закройте OpenMTP и Android File Transfer перед подключением.","Quit OpenMTP and Android File Transfer before connecting.")).font(.system(size:10)).foregroundStyle(muted).lineSpacing(3)
-            Text("SWITCHDROP 2.1").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
+            Text("SWITCHDROP 2.1.1").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
         }.padding(20).frame(maxHeight:.infinity).background(panelColor)
     }
     func tab(_ id:String,_ title:String,_ icon:String)->some View {
@@ -517,6 +622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.titlebarAppearsTransparent = true; window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = NSHostingView(rootView: ContentView(model: store)); window.delegate = self
         window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
+        store.startUSBMonitoring()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { self.store.scan() }
     }
     @objc func configureMenus() {
@@ -587,6 +693,9 @@ extension Store {
 }
 signal(SIGPIPE, SIG_IGN)
 if CommandLine.arguments.contains("--self-test") { selfTest() }
+else if let index=CommandLine.arguments.firstIndex(of:"--connection-test"), CommandLine.arguments.count>index+1 {
+    connectionSelfTest(URL(fileURLWithPath:CommandLine.arguments[index+1]))
+}
 else {
     let app = NSApplication.shared; let delegate = AppDelegate(); app.delegate = delegate; app.run()
 }

@@ -101,6 +101,7 @@ extension Store {
     }
     func confirmDeletion(_ plan: DeletionPreview) {
         guard canWrite else { return }
+        let generation=connectionGeneration
         let alert = NSAlert()
         alert.messageText = l("Удалить «\(plan.name)»?", "Delete “\(plan.name)”?")
         alert.informativeText = l(
@@ -110,6 +111,7 @@ extension Store {
         alert.addButton(withTitle:l("Удалить навсегда","Delete permanently")).hasDestructiveAction = true
         let confirmed = alert.runModal() == .alertSecondButtonReturn
         pendingDeletion = nil
+        guard generation==connectionGeneration else {return}
         requestFS([confirmed ? "deletecommit" : "deletecancel",String(plan.storage),String(plan.id),plan.token], transfer:confirmed)
     }
 

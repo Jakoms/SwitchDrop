@@ -13,7 +13,7 @@ Browse your Switch, drop files from Finder, and send game packages through one p
 - **File operations:** download individual files, create folders, rename items and delete files or entire folder trees after confirmation.
 - **Game queue:** NSP, NSZ, XCI and XCZ packages sent sequentially to DBI's **SD Card Install** storage.
 - **Transfer feedback:** per-file progress, speed, estimated remaining time and cancellation.
-- **Persistent connection:** browsing and transfers share one open MTP session.
+- **Persistent connection:** browsing and transfers share one open MTP session. USB detach/replug replaces the expired session automatically; Connect checks an existing session and recovers an unresponsive idle helper.
 - **RU / EN button:** switch the interface and macOS menus instantly; your choice is remembered.
 - **Queue recovery:** the queue survives relaunches. Interrupted transfers require an explicit retry from the beginning.
 
@@ -43,7 +43,7 @@ Existing names are not silently overwritten. Downloads use a temporary file and 
 
 - Operations run one at a time. An installation error stops the queue.
 - Cancellation is cooperative and may wait for DBI to respond. A partial item can remain after an interrupted upload.
-- There is no byte-offset resume and no automatic retry.
+- There is no byte-offset resume and no automatic replay of interrupted transfers or deletions. Reconnection restores the session and browser only.
 - Files larger than 4 GB use 64-bit sizes. DBI manages storage-specific handling; SwitchDrop does not split local files.
 - NSZ/XCZ packages can require more space when installed than their compressed source size.
 - While transferring, the app requests prevention of idle system sleep. Closing the lid and manual sleep are not prevented.
@@ -62,13 +62,14 @@ python3 Tests/test_backend.py
 python3 Tests/test_browser.py
 python3 Tests/test_adapter.py
 python3 Tests/test_delete.py
+python3 Tests/test_connection.py
 ```
 
 The build verifies and compiles the included libusb 1.0.30 and libmtp 1.1.23 source archives, bundles the libraries, and ad-hoc signs the application. The default deployment target is macOS 13.0; libraries are built with the same target. No network access is required by the build once pkg-config and the developer tools are installed.
 
 A small, included libmtp extension handles DBI directory enumeration through `GetObjectPropList`: root queries address the storage object, while the UI and uploads use the MTP root handle `0xFFFFFFFF`. It filters the returned properties to the requested storage and direct children. Ordinary `GetObjectHandles` is retained as a fallback.
 
-The source is organized into `Source/main.swift` (application and session state), `Browser.swift` (browser UI and actions), `Localization.swift` (language support), `mtp-helper.c` (session and installation protocol), and `mtp-browser.h` (file operations). The helper reads length-prefixed NUL-separated UTF-8 commands from stdin and emits JSON events. Paths are never passed through a shell.
+The source is organized into `Source/main.swift` (application and session state), `Browser.swift` (browser UI and actions), `Localization.swift` (language support), `USBMonitor.swift` (read-only USB presence monitoring), `mtp-helper.c` (session and installation protocol), and `mtp-browser.h` (file operations). The helper reads length-prefixed NUL-separated UTF-8 commands from stdin and emits JSON events. Paths are never passed through a shell.
 
 See [TESTING.md](TESTING.md) for validation coverage and limits.
 

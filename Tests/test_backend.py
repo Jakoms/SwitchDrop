@@ -53,6 +53,8 @@ with tempfile.TemporaryDirectory() as directory:
         p.stdin.write(struct.pack('!I',len(data))+data); p.stdin.flush()
     until('ready')
     assert p.poll() is None and trace.read_text().splitlines()==['open']
+    command(['ping']); until('pong')
+    assert p.poll() is None and trace.read_text().splitlines()==['open']
     command(['send','5',game,second])
     events=until('batchdone')
     assert sum(e['type']=='sent' for e in events)==2
@@ -64,4 +66,9 @@ with tempfile.TemporaryDirectory() as directory:
     command(['quit']); until('closed')
     assert p.wait(timeout=5)==0
     assert trace.read_text().splitlines()==['open','send','send','send','close']
+    p = subprocess.Popen([str(helper),'session'], env={**os.environ,'TEST_MTP_PING_FAIL':'1'}, stdin=subprocess.PIPE,stdout=subprocess.PIPE)
+    while json.loads(p.stdout.readline())['type']!='ready': pass
+    data=b'ping\0';p.stdin.write(struct.pack('!I',len(data))+data);p.stdin.flush()
+    events=[json.loads(line) for line in p.stdout]
+    assert any(e['type']=='sessionlost' for e in events) and p.wait(timeout=5)==1
 print('Backend integration tests passed: SD-only targeting, USB/serial identity, 8 GB sparse file, stop on error, cooperative cancellation, empty-file rejection, persistent session across discovery and multiple batches, newline filenames.')

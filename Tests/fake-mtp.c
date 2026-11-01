@@ -16,7 +16,12 @@ LIBMTP_error_number_t LIBMTP_Detect_Raw_Devices(LIBMTP_raw_device_t **r,int *n) 
 }
 LIBMTP_mtpdevice_t *LIBMTP_Open_Raw_Device_Uncached(LIBMTP_raw_device_t *r) { (void)r; trace("open"); return calloc(1,sizeof(LIBMTP_mtpdevice_t)); }
 int LIBMTP_Get_Storage(LIBMTP_mtpdevice_t *d,int sort) {
-  (void)sort; d->storage=calloc(1,sizeof(*d->storage)); d->storage->id=5;
+  (void)sort;
+  static int storage_calls=0;
+  if(++storage_calls>1 && getenv("TEST_MTP_PING_FAIL")) return -1;
+  LIBMTP_devicestorage_t *old=d->storage;
+  while(old){LIBMTP_devicestorage_t *next=old->next;free(old->StorageDescription);free(old);old=next;}
+  d->storage=calloc(1,sizeof(*d->storage)); d->storage->id=5;
   d->storage->StorageDescription=strdup(!strcmp(mode(),"nand")?"6: NAND install":"5: SD Card install");
   if(!strcmp(mode(),"browser")) {
     LIBMTP_devicestorage_t *sd=calloc(1,sizeof(*sd)),*ro=calloc(1,sizeof(*ro));

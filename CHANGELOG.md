@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.1
+
+- Fixed reconnection after unplugging and reconnecting a Switch without restarting the app.
+- Added read-only USB registry monitoring and automatic creation of a fresh MTP session on reattachment, including USB-address reuse.
+- Connect now pings an existing session and replaces an unresponsive idle helper instead of assuming a running process is connected.
+- Old helper events and pending deletion confirmations cannot affect a new session. Interrupted writes are kept for explicit user review and are never replayed automatically.
+- Added native lifecycle regression tests with fake helpers; MTP ping tests also verify storage-list replacement and failure handling.
+
 ## 2.1.0
 
 - Renamed Games to Install games (Установка игр).

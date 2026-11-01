@@ -89,6 +89,7 @@ static int read_exact(void *buf, size_t size) {
   return 0;
 }
 static int serve(LIBMTP_mtpdevice_t *d, LIBMTP_devicestorage_t *storage) {
+  uint32_t install_id=storage?storage->id:0;
   message("ready","Switch подключён · MTP-сессия открыта");
   while(!cancelled) {
     uint32_t network;
@@ -106,6 +107,13 @@ static int serve(LIBMTP_mtpdevice_t *d, LIBMTP_devicestorage_t *storage) {
     for(int i=0;i<count;++i) { args[i]=data+offset; offset+=strlen(args[i])+1; }
     int result=0;
     if(count==1 && !strcmp(args[0],"quit")) { free(args); free(data); return 0; }
+    if(count==1 && !strcmp(args[0],"ping")) {
+      free(args);free(data);free_delete_plan(&pending_delete);
+      if(LIBMTP_Get_Storage(d,LIBMTP_STORAGE_SORTBY_NOTSORTED)!=0) {
+        errors(d);message("sessionlost","MTP-сессия больше не отвечает");return 1;
+      }
+      message("pong","");continue;
+    }
     if(strcmp(args[0],"send")) {
       result=browser_command(d,count,args);
       free(args); free(data);
@@ -113,6 +121,7 @@ static int serve(LIBMTP_mtpdevice_t *d, LIBMTP_devicestorage_t *storage) {
       if(!result) message("fsdone","");
       continue;
     }
+    storage=find_storage(d,install_id); // Get_Storage during ping replaces the storage list.
     if(count<3 || !storage || strtoul(args[1],NULL,10)!=storage->id || !install_volume(storage->StorageDescription)) {
       message("error","Выбрано неверное установочное хранилище"); result=2;
     } else {

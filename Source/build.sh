@@ -9,7 +9,7 @@ MTP="$ROOT/.build/deps-$MACOSX_DEPLOYMENT_TARGET"
 USB="$MTP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$APP/Contents/Resources"
 clang -O2 -Wall -Wextra -Werror -mmacosx-version-min="$MACOSX_DEPLOYMENT_TARGET" -I"$MTP/include" Source/mtp-helper.c -L"$MTP/lib" -lmtp -o "$APP/Contents/MacOS/mtp-helper"
-swiftc -O -swift-version 5 -target "arm64-apple-macosx$MACOSX_DEPLOYMENT_TARGET" Source/main.swift Source/Browser.swift Source/Localization.swift -o "$APP/Contents/MacOS/SwitchDrop" -framework Cocoa -framework SwiftUI -framework UniformTypeIdentifiers
+swiftc -O -swift-version 5 -target "arm64-apple-macosx$MACOSX_DEPLOYMENT_TARGET" Source/main.swift Source/Browser.swift Source/Localization.swift Source/USBMonitor.swift Tests/ConnectionTests.swift -o "$APP/Contents/MacOS/SwitchDrop" -framework Cocoa -framework SwiftUI -framework UniformTypeIdentifiers -framework IOKit
 cp "$MTP/lib/libmtp.9.dylib" "$APP/Contents/Frameworks/"
 cp "$USB/lib/libusb-1.0.0.dylib" "$APP/Contents/Frameworks/"
 chmod u+w "$APP/Contents/Frameworks/"*.dylib
@@ -25,8 +25,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <key>CFBundleIdentifier</key><string>local.jakoms.switchdrop</string>
 <key>CFBundleExecutable</key><string>SwitchDrop</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>2.1.0</string>
-<key>CFBundleVersion</key><string>4</string>
+<key>CFBundleShortVersionString</key><string>2.1.1</string>
+<key>CFBundleVersion</key><string>5</string>
 <key>LSMinimumSystemVersion</key><string>$MACOSX_DEPLOYMENT_TARGET</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>NSHumanReadableCopyright</key><string>SwitchDrop · libmtp / libusb: LGPL 2.1</string>

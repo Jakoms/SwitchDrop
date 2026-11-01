@@ -21,3 +21,7 @@ A Finder drag-and-drop test copied a 38-byte text file to the SD card, confirmed
 `Tests/test_delete.py` covers the read-only preview, confirmation token, cancellation without deletion, recursive leaf-first deletion, revalidation of changed contents, root and cross-storage rejection, cycle rejection and partial-failure reporting.
 
 Hardware validation for 2.1.0 created a generated tree containing 3 files and 3 folders (12 bytes of file data). The preview reported these counts correctly. Cancellation kept the tree; a subsequent confirmed commit removed all 6 items. No existing user files were deleted for this test.
+
+`Tests/test_connection.py` exercises the actual Swift Store and Process/pipe lifecycle using a fake helper. It covers healthy-session ping without reopening, USB detach/replug, address reuse, direct re-enumeration, stale-event isolation, interrupted-write recovery, clearing old deletion confirmations, no automatic replay, hung idle-helper replacement and shutdown. The fake helper does not open USB. Native USB enumeration reads IOKit registry properties without claiming the interface.
+
+For 2.1.1, the installed UI was verified to clear the previous connected state while the Switch was physically absent. A complete physical detach/replug cycle has not yet been confirmed; the automated lifecycle regression scenarios above passed.
