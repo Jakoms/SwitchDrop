@@ -79,6 +79,17 @@ func browserMessage(_ text: String) -> String {
         "Deletion stopped because a folder changed. Some items may already have been deleted.": "Папка изменилась. Удаление остановлено; часть объектов уже могла быть удалена.",
         "Deletion failed. Some items may already have been deleted.": "Удаление не завершено; часть объектов уже могла быть удалена.",
         "Операция остановлена. Уже выполненные изменения сохранены.": "Операция остановлена. Уже выполненные изменения сохранены.",
+        "Invalid upload conflict response.": "Некорректный ответ на конфликт при копировании.",
+        "Upload conflict confirmation expired.": "Выбор для конфликта устарел. Запустите копирование заново.",
+        "This type conflict cannot be replaced. Rename or remove the destination explicitly.": "Файл и папку нельзя заменить друг другом. Выберите другое имя или удалите объект отдельно.",
+        "Cannot create a safe temporary filename.": "Не удалось выбрать безопасное имя временного файла.",
+        "Destination changed during upload. The new file was kept under a temporary name; the destination was not replaced.": "Назначение изменилось во время передачи. Новый файл сохранён под временным именем; существующий не заменён.",
+        "Could not prepare replacement. The original file and the staged upload were preserved.": "Не удалось подготовить замену. Старый и новый файлы сохранены отдельно.",
+        "Replacement failed. The old file is under a .switchdrop-backup name and the new file is under a .switchdrop-upload name.": "Замена не завершена. Старый файл сохранён под именем .switchdrop-backup, новый — под именем .switchdrop-upload.",
+        "Replacement failed. The original name was restored; the staged upload was preserved.": "Замена не завершена. Имя старого файла восстановлено; новый сохранён под временным именем.",
+        "The new file was copied, but the old backup could not be removed. A .switchdrop-backup file remains.": "Новый файл скопирован, но резервную копию старого удалить не удалось. Остался файл .switchdrop-backup.",
+        "Could not unambiguously read the destination folder.": "Не удалось однозначно прочитать папку назначения.",
+        "Cannot create a unique destination filename.": "Не удалось выбрать свободное имя для сохранения обоих объектов.",
         "Folder nesting is too deep.": "Слишком большая вложенность папок."
     ]
     return messages[text] ?? text

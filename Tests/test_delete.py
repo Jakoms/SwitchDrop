@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory() as directory:
     if not (prefix/'include/libmtp.h').exists():
         prefix=pathlib.Path(subprocess.check_output(['brew','--prefix','libmtp'],text=True).strip())
     helper=tmp/'helper'
-    subprocess.run(['clang','-Wall','-Wextra','-Werror','-I'+str(prefix/'include'),str(root/'Source/mtp-helper.c'),str(root/'Tests/fake-mtp.c'),'-o',str(helper)],check=True)
+    subprocess.run(['clang','-framework','CoreFoundation','-Wall','-Wextra','-Werror','-I'+str(prefix/'include'),str(root/'Source/mtp-helper.c'),str(root/'Tests/fake-mtp.c'),'-o',str(helper)],check=True)
     def session(**settings):
         trace=tmp/('trace-'+str(len(list(tmp.iterdir()))))
         p=subprocess.Popen([str(helper),'session'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,env={**os.environ,'TEST_MTP_MODE':'browser','TEST_MTP_TRACE':str(trace),**settings})

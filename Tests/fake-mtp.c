@@ -41,7 +41,11 @@ static int browser_upload(LIBMTP_file_t *,int);
 int LIBMTP_Send_File_From_File_Descriptor(LIBMTP_mtpdevice_t *d,int fd,LIBMTP_file_t *f,LIBMTP_progressfunc_t cb,const void *data) {
   (void)d; (void)fd; trace("send");
   if(f->storage_id==5) { if(f->parent_id!=UINT32_MAX || !f->filename) abort(); }
-  else if(browser_upload(f,fd)) return -1;
+  else {
+    if(getenv("TEST_MTP_FAIL_STAGE") && !strncmp(f->filename,".switchdrop-upload-",18))return -1;
+    if(browser_upload(f,fd))return -1;
+    if(getenv("TEST_MTP_FAIL_STAGE_AFTER_CREATE") && !strncmp(f->filename,".switchdrop-upload-",18))return -1;
+  }
   if(!strcmp(mode(),"fail")) return -1;
   if(!strcmp(mode(),"cancel")) {
     for(int i=0;i<500;++i) { usleep(10000); if(cb((uint64_t)i,f->filesize,data)) return -1; }
@@ -80,14 +84,17 @@ LIBMTP_file_t *LIBMTP_Get_Files_And_Folders(LIBMTP_mtpdevice_t *d,uint32_t sid,u
   return head;
 }
 uint32_t LIBMTP_Create_Folder(LIBMTP_mtpdevice_t *d,char *name,uint32_t parent,uint32_t sid) { (void)d;init_nodes();uint32_t id=next_id++;add_node(id,sid,parent,name,1);trace("mkdir");return id; }
-int LIBMTP_Set_Object_Filename(LIBMTP_mtpdevice_t *d,uint32_t id,char *name) { (void)d;Node *n=node(id);if(!n)return -1;free(n->name);n->name=strdup(name);trace("rename");return 0; }
+int LIBMTP_Set_Object_Filename(LIBMTP_mtpdevice_t *d,uint32_t id,char *name) { (void)d;Node *n=node(id);if(!n)return -1;
+  if(getenv("TEST_MTP_FAIL_COMMIT_RENAME") && !strncmp(n->name,".switchdrop-upload-",18))return -1;
+  if(getenv("TEST_MTP_FAIL_RESTORE") && !strncmp(n->name,".switchdrop-backup-",18))return -1;
+  free(n->name);n->name=strdup(name);trace("rename");return 0; }
 int LIBMTP_Delete_Object(LIBMTP_mtpdevice_t *d,uint32_t id) { (void)d;Node *n=node(id);if(!n)return -1;
   const char *fail=getenv("TEST_MTP_DELETE_FAIL_ID");if(fail && id==strtoul(fail,NULL,10))return -1;
   free(n->name);free(n->data);memset(n,0,sizeof(*n));trace("delete");
   char event[48];snprintf(event,sizeof(event),"delete:%u",id);trace(event);return 0; }
 int LIBMTP_Get_File_To_File_Descriptor(LIBMTP_mtpdevice_t *d,uint32_t id,int fd,LIBMTP_progressfunc_t cb,const void *data) { (void)d;Node *n=node(id);if(!n)return -1;if(n->size && write(fd,n->data,n->size)!=(ssize_t)n->size)return -1;return cb(n->size,n->size,data)?-1:0; }
 static int browser_upload(LIBMTP_file_t *f,int fd) {
-  init_nodes();Node *n=add_node(next_id++,f->storage_id,f->parent_id,f->filename,0);n->size=(size_t)f->filesize;n->data=calloc(n->size+1,1);
+  init_nodes();Node *n=add_node(next_id++,f->storage_id,f->parent_id,f->filename,0);f->item_id=n->id;n->size=(size_t)f->filesize;n->data=calloc(n->size+1,1);
   if(n->size && read(fd,n->data,n->size)!=(ssize_t)n->size)return -1;return 0;
 }
 

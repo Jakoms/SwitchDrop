@@ -76,6 +76,7 @@ static int transfer_files(LIBMTP_mtpdevice_t *d, uint32_t storage, char **paths,
       }
   return result;
 }
+static int read_exact(void *buf,size_t size);
 #include "mtp-browser.h"
 // Length-prefixed, NUL-separated UTF-8 arguments; filenames can contain newlines.
 static int read_exact(void *buf, size_t size) {

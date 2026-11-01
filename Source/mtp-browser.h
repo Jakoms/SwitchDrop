@@ -44,52 +44,21 @@ static int valid_name(const char *s) {
   for(const unsigned char *p=(const unsigned char*)s;*p;++p) if(*p<32 || strchr("/\\:*?\"<>|",*p)) return 0;
   return s[strlen(s)-1]!='.' && s[strlen(s)-1]!=' ';
 }
+static int names_equal(const char *,const char *);
 // No implicit overwrite, including case-only collisions on FAT/exFAT.
 static int collision(LIBMTP_mtpdevice_t *d,uint32_t storage,uint32_t parent,const char *name,uint32_t except) {
   LIBMTP_Clear_Errorstack(d);
   LIBMTP_file_t *files=LIBMTP_SwitchDrop_List(d,storage,parent);
   if(LIBMTP_Get_Errorstack(d)) { destroy_files(files); return -1; }
   int found=0;
-  for(LIBMTP_file_t *f=files;f;f=f->next) if(f->item_id!=except && f->filename && !strcasecmp(f->filename,name)) { found=1; break; }
+  for(LIBMTP_file_t *f=files;f;f=f->next) if(f->item_id!=except && f->filename && names_equal(f->filename,name)) { found=1; break; }
   destroy_files(files); return found;
 }
 static void fs_start(const char *name,uint64_t size) {
   current_index=-1; last_progress=0;
   fprintf(out,"{\"type\":\"fsstart\",\"size\":%llu,\"name\":",(unsigned long long)size); quoted(name); fprintf(out,"}\n"); fflush(out);
 }
-static int upload_path(LIBMTP_mtpdevice_t *d,uint32_t storage,uint32_t parent,const char *path,int depth) {
-  if(cancelled) return 1;
-  if(depth>64) return op_error(d,"Folder nesting is too deep.");
-  struct stat st;
-  if(lstat(path,&st) || (!S_ISREG(st.st_mode) && !S_ISDIR(st.st_mode))) return op_error(d,"Only regular files and folders can be uploaded; symbolic links are skipped.");
-  const char *name=strrchr(path,'/'); name=name?name+1:path;
-  if(!valid_name(name)) return op_error(d,"The name contains characters unsupported by the SD card.");
-  int exists=collision(d,storage,parent,name,0);
-  if(exists) return op_error(d,exists>0?"An item with this name already exists. Rename it first.":"Could not check the destination folder.");
-  if(S_ISDIR(st.st_mode)) {
-    DIR *dir=opendir(path); if(!dir) return op_error(d,"Cannot read the local folder.");
-    uint32_t folder=LIBMTP_Create_Folder(d,(char*)name,parent,storage);
-    if(!folder) { closedir(dir); return op_error(d,"Could not create the destination folder."); }
-    int rc=0; struct dirent *entry;
-    while(!cancelled && (entry=readdir(dir))) {
-      if(!strcmp(entry->d_name,".") || !strcmp(entry->d_name,"..") || !strcmp(entry->d_name,".DS_Store")) continue;
-      char *child=NULL;
-      if(asprintf(&child,"%s/%s",path,entry->d_name)<0) { rc=1; break; }
-      rc=upload_path(d,storage,folder,child,depth+1); free(child);
-      if(rc) break;
-    }
-    closedir(dir); return rc;
-  }
-  int fd=open(path,O_RDONLY|O_NONBLOCK);
-  if(fd<0 || fstat(fd,&st) || !S_ISREG(st.st_mode)) { if(fd>=0) close(fd); return op_error(d,"Cannot read the local file."); }
-  LIBMTP_file_t *f=LIBMTP_new_file_t();
-  f->filename=strdup(name); f->filesize=(uint64_t)st.st_size; f->filetype=LIBMTP_FILETYPE_UNKNOWN;
-  f->storage_id=storage; f->parent_id=parent; f->modificationdate=st.st_mtime;
-  fs_start(name,f->filesize);
-  int rc=LIBMTP_Send_File_From_File_Descriptor(d,fd,f,progress,NULL);
-  close(fd); LIBMTP_destroy_file_t(f);
-  return rc?op_error(d,"Upload failed. A partial item may remain on the Switch."):0;
-}
+#include "mtp-upload.h"
 #include "mtp-delete.h"
 static int browser_command(LIBMTP_mtpdevice_t *d,int count,char **args) {
   if(count<3) return op_error(d,"Invalid file operation.");
@@ -128,7 +97,9 @@ static int browser_command(LIBMTP_mtpdevice_t *d,int count,char **args) {
   if(!strcmp(args[0],"deleteplan") || !strcmp(args[0],"deletecommit") || !strcmp(args[0],"deletecancel")) return deletion_command(d,count,args,sid,id);
   if(!strcmp(args[0],"upload") && count>=4) {
     if(!checked_parent(d,sid,id)) return op_error(d,"The destination folder is no longer available.");
-    for(int i=3;i<count && !cancelled;++i) if(upload_path(d,sid,id,args[i],0)) return 1;
+    UploadStats stats={0};
+    for(int i=3;i<count && !cancelled;++i) if(upload_path_as(d,sid,id,args[i],0,NULL,&stats)) return 1;
+    fprintf(out,"{\"type\":\"uploadsummary\",\"copied\":%zu,\"merged\":%zu,\"replaced\":%zu,\"skipped\":%zu,\"kept\":%zu}\n",stats.copied,stats.merged,stats.replaced,stats.skipped,stats.kept);fflush(out);
     return 0;
   }
   if(!strcmp(args[0],"mkdir") && count==4) {

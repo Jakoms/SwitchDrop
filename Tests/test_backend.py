@@ -7,7 +7,7 @@ with tempfile.TemporaryDirectory() as directory:
     if not pathlib.Path(mtp,'include/libmtp.h').exists():
         mtp = subprocess.check_output(['brew', '--prefix', 'libmtp'], text=True).strip()
     helper = tmp / 'helper'
-    subprocess.run(['clang', '-Wall', '-Wextra', '-Werror', '-I'+mtp+'/include', str(root/'Source/mtp-helper.c'), str(root/'Tests/fake-mtp.c'), '-o', str(helper)], check=True)
+    subprocess.run(['clang','-framework','CoreFoundation', '-Wall', '-Wextra', '-Werror', '-I'+mtp+'/include', str(root/'Source/mtp-helper.c'), str(root/'Tests/fake-mtp.c'), '-o', str(helper)], check=True)
     game = tmp / 'Игра с пробелом.NSP'
     with game.open('wb') as f: f.truncate(8 * 1024**3 + 7) # sparse; no 8 GB allocation
     second = tmp / 'DLC.nsz'; second.write_bytes(b'abc')

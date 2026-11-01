@@ -9,7 +9,7 @@ Browse your Switch, drop files from Finder, and send game packages through one p
 ## Features
 
 - **File browser:** storage picker, folder navigation, breadcrumbs, search and contextual actions.
-- **Finder drag & drop:** copy files or entire folders into the current SD folder, or drop onto a folder row.
+- **Finder drag & drop:** copy files or entire folders into the current SD folder, or drop onto a folder row. Matching folders merge recursively and preserve destination-only files.
 - **File operations:** download individual files, create folders, rename items and delete files or entire folder trees after confirmation.
 - **Game queue:** NSP, NSZ, XCI and XCZ packages sent sequentially to DBI's **SD Card Install** storage.
 - **Transfer feedback:** per-file progress, speed, estimated remaining time and cancellation.
@@ -37,7 +37,9 @@ In Files, choose a storage and double-click a folder to open it. Drop files or f
 
 Changes are enabled only on **SD Card**. Other browsable storages are read-only in SwitchDrop. Virtual installation storages are handled by the Install games tab. DBI determines which storages are exposed.
 
-Existing names are not silently overwritten. Downloads use a temporary file and commit without replacing an existing destination. Symlinks and filesystem special files are not uploaded. A failed folder upload may leave the files that were already copied. Deletion first scans the selected item and shows file/folder counts and total file size. Nothing is removed before confirmation. The helper revalidates the tree before deleting its contents from the leaves up; changed contents require a new confirmation. Deletion has no Trash recovery. Stopping a deletion preserves changes already made.
+Folder names are matched case-insensitively, including Unicode and equivalent composed/decomposed names. Existing directories are reused recursively; their other contents are retained. File conflicts offer **Skip**, **Keep both**, **Replace file**, or **Stop copying**, with an optional choice for all file conflicts in the current upload. File-versus-folder conflicts cannot silently replace a directory; skip, keep both, or manage the destination explicitly.
+
+File replacement uploads a temporary copy first, then swaps names through a backup. A failed transfer preserves the original. Replacement needs free space for the incoming file while the original still exists. If a rename or backup cleanup fails, the error explains the remaining `.switchdrop-upload` / `.switchdrop-backup` files. Downloads use a temporary local file and commit without replacing an existing destination. Symlinks and filesystem special files are not uploaded. A failed folder upload may leave the files that were already copied. Deletion first scans the selected item and shows file/folder counts and total file size. Nothing is removed before confirmation. The helper revalidates the tree before deleting its contents from the leaves up; changed contents require a new confirmation. Deletion has no Trash recovery. Stopping a deletion preserves changes already made.
 
 ## Transfer behavior
 
@@ -63,13 +65,14 @@ python3 Tests/test_browser.py
 python3 Tests/test_adapter.py
 python3 Tests/test_delete.py
 python3 Tests/test_connection.py
+python3 Tests/test_merge.py
 ```
 
 The build verifies and compiles the included libusb 1.0.30 and libmtp 1.1.23 source archives, bundles the libraries, and ad-hoc signs the application. The default deployment target is macOS 13.0; libraries are built with the same target. No network access is required by the build once pkg-config and the developer tools are installed.
 
 A small, included libmtp extension handles DBI directory enumeration through `GetObjectPropList`: root queries address the storage object, while the UI and uploads use the MTP root handle `0xFFFFFFFF`. It filters the returned properties to the requested storage and direct children. Ordinary `GetObjectHandles` is retained as a fallback.
 
-The source is organized into `Source/main.swift` (application and session state), `Browser.swift` (browser UI and actions), `Localization.swift` (language support), `USBMonitor.swift` (read-only USB presence monitoring), `mtp-helper.c` (session and installation protocol), and `mtp-browser.h` (file operations). The helper reads length-prefixed NUL-separated UTF-8 commands from stdin and emits JSON events. Paths are never passed through a shell.
+The source is organized into `Source/main.swift` (application and session state), `Browser.swift` (browser UI and actions), `Localization.swift` (language support), `USBMonitor.swift` (read-only USB presence monitoring), `mtp-helper.c` (session and installation protocol), `mtp-browser.h` (file operations), `mtp-upload.h` (recursive merging and conflict resolution), and `mtp-delete.h` (two-phase deletion). The helper reads length-prefixed NUL-separated UTF-8 commands from stdin and emits JSON events. Paths are never passed through a shell.
 
 See [TESTING.md](TESTING.md) for validation coverage and limits.
 

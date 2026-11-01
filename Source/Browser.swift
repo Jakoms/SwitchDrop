@@ -12,6 +12,16 @@ struct RemoteEntry: Identifiable {
 struct DeletionPreview {
     let storage: Int, id: Int, token: String, name: String, files: Int, folders: Int, bytes: Int64
 }
+struct UploadConflict {
+    let token: String, path: String, name: String
+    let sourceFolder: Bool, destinationFolder: Bool
+    let sourceSize: Int64, destinationSize: Int64
+    var filePair: Bool { !sourceFolder && !destinationFolder }
+    static func decode(_ e: [String:Any]) -> UploadConflict? {
+        guard let token=e["token"] as? String, let path=e["path"] as? String, let name=e["name"] as? String else {return nil}
+        return UploadConflict(token:token,path:path,name:name,sourceFolder:e["sourceFolder"] as? Bool ?? false,destinationFolder:e["destinationFolder"] as? Bool ?? false,sourceSize:(e["sourceSize"] as? NSNumber)?.int64Value ?? 0,destinationSize:(e["destinationSize"] as? NSNumber)?.int64Value ?? 0)
+    }
+}
 struct RemoteLocation { let id: Int, name: String }
 
 func loadDroppedURLs(_ providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
@@ -66,6 +76,31 @@ extension Store {
         let paths = urls.filter(\.isFileURL).map { $0.standardizedFileURL.path }
         guard !paths.isEmpty else { return }
         requestFS(["upload", String(browserStorageID), String(folder ?? currentFolder)] + paths, transfer: true)
+    }
+    func confirmUploadConflict(_ conflict: UploadConflict) {
+        guard transferring, fsActive, activeUploadConflictToken==conflict.token else {return}
+        let generation=connectionGeneration
+        let alert=NSAlert()
+        alert.messageText=l("«\(conflict.name)» уже существует", "“\(conflict.name)” already exists")
+        let source=conflict.sourceFolder ? l("папка","folder") : bytes(conflict.sourceSize)
+        let destination=conflict.destinationFolder ? l("папка","folder") : bytes(conflict.destinationSize)
+        alert.informativeText=l("С Mac: \(source)\nНа Switch: \(destination)\n\n\(conflict.path)\n\nПапки с одинаковым именем объединяются. Существующие файлы требуют выбора.","From Mac: \(source)\nOn Switch: \(destination)\n\n\(conflict.path)\n\nFolders with matching names are merged. Existing files require a choice.")
+        var choices=["skip","keep"]
+        alert.addButton(withTitle:l("Пропустить","Skip"))
+        alert.addButton(withTitle:l("Сохранить оба","Keep both"))
+        if conflict.filePair {
+            choices.append("replace")
+            alert.addButton(withTitle:l("Заменить файл","Replace file")).hasDestructiveAction=true
+        }
+        choices.append("stop")
+        alert.addButton(withTitle:l("Остановить копирование","Stop copying")).keyEquivalent="\u{1b}"
+        let apply=NSButton(checkboxWithTitle:l("Применить ко всем конфликтам файлов в этой передаче","Apply to all file conflicts in this transfer"),target:nil,action:nil)
+        apply.frame=NSRect(x:0,y:0,width:400,height:24)
+        if conflict.filePair {alert.accessoryView=apply}
+        let index=alert.runModal().rawValue-NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        guard generation==connectionGeneration else {return}
+        let choice=choices.indices.contains(index) ? choices[index] : "stop"
+        respondUploadConflict(conflict.token,choice:choice,applyToAll:conflict.filePair && apply.state == .on)
     }
     func chooseUpload() {
         let p = NSOpenPanel(); p.allowsMultipleSelection = true; p.canChooseDirectories = true; p.canChooseFiles = true

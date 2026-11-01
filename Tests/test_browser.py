@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory() as directory:
     if not (prefix/'include/libmtp.h').exists():
         prefix = pathlib.Path(subprocess.check_output(['brew','--prefix','libmtp'],text=True).strip())
     helper = tmp/'helper'
-    subprocess.run(['clang','-Wall','-Wextra','-Werror','-I'+str(prefix/'include'),str(root/'Source/mtp-helper.c'),str(root/'Tests/fake-mtp.c'),'-o',str(helper)],check=True)
+    subprocess.run(['clang','-framework','CoreFoundation','-Wall','-Wextra','-Werror','-I'+str(prefix/'include'),str(root/'Source/mtp-helper.c'),str(root/'Tests/fake-mtp.c'),'-o',str(helper)],check=True)
     p = subprocess.Popen([str(helper),'session'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,env={**os.environ,'TEST_MTP_MODE':'browser'})
     def receive():
         line=p.stdout.readline()
@@ -34,6 +34,9 @@ with tempfile.TemporaryDirectory() as directory:
         result=[]
         while True:
             e=receive(); result.append(e)
+            if e['type']=='uploadconflict':
+                reply=b'uploadchoice\0'+e['token'].encode()+b'\0skip\0one\0'
+                p.stdin.write(struct.pack('!I',len(reply))+reply);p.stdin.flush()
             if e['type'] in ('fsdone','operror','closed'):
                 assert e['type']==expected,result
                 return result
@@ -62,7 +65,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert hashlib.sha256(source.read_bytes()).digest()==hashlib.sha256(destination.read_bytes()).digest()
     command(['download',1,item['id'],destination],'operror')
     assert destination.read_bytes()==source.read_bytes()
-    command(['upload',1,folder['id'],source],'operror')
+    duplicate=command(['upload',1,folder['id'],source])
+    assert next(e for e in duplicate if e['type']=='uploadsummary')['skipped']==1
     link=tmp/'link'; link.symlink_to(source)
     command(['upload',1,folder['id'],link],'operror')
     tree=tmp/'tree'; (tree/'nested').mkdir(parents=True); (tree/'nested'/'tiny.txt').write_text('hello')

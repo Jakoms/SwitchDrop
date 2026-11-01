@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.2.0
+
+- Fixed copying same-name folders: directories now merge recursively instead of stopping at the first collision. Destination-only files are preserved.
+- Added Skip, Keep both, Replace file and Stop copying for file collisions, with an optional policy for the current upload only.
+- Added Unicode/case-equivalent name matching and explicit handling of file-versus-folder conflicts.
+- Replacement stages the incoming file before renaming through a backup; failed transfers preserve the original. Rename/cleanup failures report retained recovery files.
+- Added a completion summary with copied, merged and skipped counts.
+- Added merge/conflict/rollback regression tests and real-device validation, including downloaded-content verification and the native Skip dialog.
+
 ## 2.1.1
 
 - Fixed reconnection after unplugging and reconnecting a Switch without restarting the app.

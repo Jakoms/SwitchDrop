@@ -78,6 +78,11 @@ final class Store: ObservableObject {
     @Published var currentName = ""
     var fsCommand = ""
     var pendingDeletion: DeletionPreview?
+    private var pendingUploadToken: String?
+    var activeUploadConflictToken: String? {pendingUploadToken}
+    private var uploadSummary: String?
+    private var folderCompletion: String?
+    @Published var awaitingUploadChoice = false
     @Published var jobs: [Job] = []
     @Published var devices: [Device] = []
     @Published var selected = ""
@@ -199,7 +204,7 @@ final class Store: ObservableObject {
     }
     private func clearConnectionState(interrupted: Bool) {
         for i in jobs.indices where jobs[i].state == .sending {jobs[i].state=interrupted ? .interrupted : .failed}
-        sessionReady=false;activeUSB=nil;pingToken=nil;pendingDeletion=nil
+        sessionReady=false;activeUSB=nil;pingToken=nil;pendingDeletion=nil;pendingUploadToken=nil;awaitingUploadChoice=false;uploadSummary=nil;folderCompletion=nil
         busy=false;transferring=false;stopping=false;fsActive=false;fsCommand=""
         devices=[];selected="";remoteStorages=[];browserStorageID=0;browserPath=[];entries=[];selectedEntryID=nil
         activeJobs=[];activeID=nil;sent=0;currentSize=0;speed=0;currentName=""
@@ -301,6 +306,7 @@ final class Store: ObservableObject {
         guard usableSession(), let input = commandInput else { problem = l("Сначала подключите Switch.", "Connect your Switch first."); return }
         let command = encodeCommand(args)
         guard command.count <= 4 * 1024 * 1024 + 4 else { problem = l("Слишком много файлов. Загрузите их несколькими партиями.","Too many files. Upload them in smaller batches."); return }
+        if args[0]=="upload" {uploadSummary=nil;pendingUploadToken=nil;awaitingUploadChoice=false}
         problem = ""; fsCommand = args[0]; fsActive = true; busy = true; transferring = transfer; stopping = false
         activeJobs = []; activeID = nil; sent = 0; currentSize = 0; speed = 0; currentName = ""
         gotError = false; gotDone = false; gotCancelled = false
@@ -309,8 +315,15 @@ final class Store: ObservableObject {
         do { try input.write(contentsOf: command) }
         catch { problem = error.localizedDescription; busy = false; transferring = false; fsActive = false; endActivity() }
     }
+    func respondUploadConflict(_ token: String, choice: String, applyToAll: Bool) {
+        guard fsActive, fsCommand=="upload", transferring, pendingUploadToken==token, usableSession(), let input=commandInput else {return}
+        pendingUploadToken=nil;awaitingUploadChoice=false;status=l("Копирование файлов…","Copying files…")
+        do {try input.write(contentsOf:encodeCommand(["uploadchoice",token,choice,applyToAll ? "all":"one"]))}
+        catch {retireConnection(l("Соединение прервано во время выбора конфликта.","Connection interrupted while resolving a conflict."))}
+    }
     func cancel() {
         guard busy, !stopping, let p = process, p.isRunning else { return }
+        if let token=pendingUploadToken {respondUploadConflict(token,choice:"stop",applyToAll:false)}
         stopping = true; status = "Останавливаю… Дождитесь ответа DBI"
         kill(p.processIdentifier, SIGUSR1)
         log("Запрошена отмена. Текущая установка могла успеть завершиться; проверьте DBI.")
@@ -345,6 +358,17 @@ final class Store: ObservableObject {
             if let id=e["id"] as? Int, let storage=e["storage"] as? Int {
                 entries.append(RemoteEntry(id:id,parent:e["parent"] as? Int ?? mtpRoot,storage:storage,name:e["name"] as? String ?? "",folder:e["folder"] as? Bool ?? false,size:(e["size"] as? NSNumber)?.int64Value ?? 0))
             }
+        case "uploadconflict":
+            if let conflict=UploadConflict.decode(e) {
+                pendingUploadToken=conflict.token;awaitingUploadChoice=true
+                status=l("Ожидается выбор для существующего файла…","Waiting for a file conflict decision…")
+                let generation=operation
+                DispatchQueue.main.async {if self.operation==generation {self.confirmUploadConflict(conflict)}}
+            }
+        case "uploadsummary":
+            let copied=e["copied"] as? Int ?? 0, merged=e["merged"] as? Int ?? 0, skipped=e["skipped"] as? Int ?? 0
+            uploadSummary=l("Скопировано файлов: \(copied). Объединено папок: \(merged). Пропущено: \(skipped).","Files copied: \(copied). Folders merged: \(merged). Skipped: \(skipped).")
+            if let summary=uploadSummary {log(summary)}
         case "fsstart":
             currentName=e["name"] as? String ?? ""; currentSize=(e["size"] as? NSNumber)?.int64Value ?? 0
             sent=0; speed=0; lastSent=0; lastSample=Date(); log(currentName)
@@ -365,11 +389,13 @@ final class Store: ObservableObject {
                 gotDone=true; busy=false; transferring=false; fsActive=false; status=l("Удаление отменено","Deletion cancelled"); endActivity(); break
             }
             let refresh = fsCommand != "list"
+            if fsCommand=="upload" {folderCompletion=uploadSummary}
             gotDone=true; busy=false; transferring=false; fsActive=false; stopping=false; speed=0
-            status = refresh ? "File operation complete" : "Folder loaded"; endActivity()
+            status = refresh ? (uploadSummary ?? "File operation complete") : (folderCompletion ?? "Folder loaded"); endActivity()
+            if !refresh {folderCompletion=nil;uploadSummary=nil}
             if refresh {log(status);let generation=operation;DispatchQueue.main.async {if self.operation==generation {self.loadFolder()}}}
         case "operror":
-            gotError=true; busy=false; transferring=false; fsActive=false; stopping=false; problem=msg; status=msg; log(msg); endActivity()
+            gotError=true; busy=false; transferring=false; fsActive=false; stopping=false; pendingUploadToken=nil;awaitingUploadChoice=false;uploadSummary=nil;folderCompletion=nil; problem=msg; status=msg; log(msg); endActivity()
         case "batchdone":
             gotDone = true; busy = false; transferring = false; stopping = false
             activeID = nil; speed = 0; status = msg; log(msg); persist(); endActivity()
@@ -455,7 +481,7 @@ final class Store: ObservableObject {
         if gotError { status = "\(transfer ? "Передача остановлена" : "Подключение не готово")" }
         busy = false; transferring = false; stopping = false; process = nil; activeID = nil; speed = 0
         persist(); endActivity()
-        sessionReady = false;activeUSB=nil;pingToken=nil;pendingDeletion=nil
+        sessionReady = false;activeUSB=nil;pingToken=nil;pendingDeletion=nil;pendingUploadToken=nil;awaitingUploadChoice=false;uploadSummary=nil;folderCompletion=nil
         devices=[];selected="";remoteStorages=[];browserStorageID=0;browserPath=[];entries=[];selectedEntryID=nil;fsActive=false
         try? commandInput?.close(); commandInput = nil
         if !shuttingDown && reconnectAttempts>0 {
@@ -540,7 +566,7 @@ struct ContentView: View {
             }
             Spacer(minLength:0)
             Text(l("Закройте OpenMTP и Android File Transfer перед подключением.","Quit OpenMTP and Android File Transfer before connecting.")).font(.system(size:10)).foregroundStyle(muted).lineSpacing(3)
-            Text("SWITCHDROP 2.1.1").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
+            Text("SWITCHDROP 2.2").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
         }.padding(20).frame(maxHeight:.infinity).background(panelColor)
     }
     func tab(_ id:String,_ title:String,_ icon:String)->some View {
@@ -662,6 +688,8 @@ func selfTest() {
     let previewStore=Store(stateURL:FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("queue.json"))
     previewStore.event(["type":"deletepreview","storage":1,"id":103,"token":"1","name":"test folder","files":3,"folders":3,"bytes":12])
     precondition(previewStore.pendingDeletion?.files == 3 && previewStore.pendingDeletion?.folders == 3 && previewStore.pendingDeletion?.token == "1")
+    let conflict=UploadConflict.decode(["token":"42","path":"/tmp/test.bin","name":"test.bin","sourceFolder":false,"destinationFolder":false,"sourceSize":3,"destinationSize":5])!
+    precondition(conflict.filePair && conflict.sourceSize==3 && conflict.destinationSize==5 && conflict.token=="42")
     let frame = encodeCommand(["send", "5", "Игра\nNSP.nsp"])
     let payload = frame.dropFirst(4)
     let count = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
