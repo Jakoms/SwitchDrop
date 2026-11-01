@@ -90,11 +90,13 @@ static int upload_path(LIBMTP_mtpdevice_t *d,uint32_t storage,uint32_t parent,co
   close(fd); LIBMTP_destroy_file_t(f);
   return rc?op_error(d,"Upload failed. A partial item may remain on the Switch."):0;
 }
+#include "mtp-delete.h"
 static int browser_command(LIBMTP_mtpdevice_t *d,int count,char **args) {
   if(count<3) return op_error(d,"Invalid file operation.");
   uint32_t sid=(uint32_t)strtoul(args[1],NULL,10), id=(uint32_t)strtoul(args[2],NULL,10);
   LIBMTP_devicestorage_t *storage=find_storage(d,sid);
   if(!storage || any_install_volume(storage->StorageDescription)) return op_error(d,"This storage is not browsable. Use the install queue instead.");
+  if(strcmp(args[0],"deleteplan") && strcmp(args[0],"deletecommit") && strcmp(args[0],"deletecancel")) free_delete_plan(&pending_delete);
   LIBMTP_Clear_Errorstack(d);
   if(!strcmp(args[0],"list") && count==3) {
     if(!checked_parent(d,sid,id)) return op_error(d,"The destination folder is no longer available.");
@@ -123,6 +125,7 @@ static int browser_command(LIBMTP_mtpdevice_t *d,int count,char **args) {
     return rc?op_error(d,"Download failed or the destination already exists. Existing files were not changed."):0;
   }
   if(!writable_storage(storage)) return op_error(d,"This storage is read-only in SwitchDrop. File changes are available on SD Card only.");
+  if(!strcmp(args[0],"deleteplan") || !strcmp(args[0],"deletecommit") || !strcmp(args[0],"deletecancel")) return deletion_command(d,count,args,sid,id);
   if(!strcmp(args[0],"upload") && count>=4) {
     if(!checked_parent(d,sid,id)) return op_error(d,"The destination folder is no longer available.");
     for(int i=3;i<count && !cancelled;++i) if(upload_path(d,sid,id,args[i],0)) return 1;

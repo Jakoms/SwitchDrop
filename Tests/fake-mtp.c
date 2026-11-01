@@ -65,13 +65,21 @@ static LIBMTP_file_t *metadata(Node *n) {
 }
 LIBMTP_file_t *LIBMTP_Get_Filemetadata(LIBMTP_mtpdevice_t *d,uint32_t id) { (void)d;init_nodes();return metadata(node(id)); }
 LIBMTP_file_t *LIBMTP_Get_Files_And_Folders(LIBMTP_mtpdevice_t *d,uint32_t sid,uint32_t parent) {
-  (void)d;init_nodes();LIBMTP_file_t *head=NULL,**tail=&head;
+  (void)d;init_nodes();
+  static int watched_calls=0;
+  if(parent==103 && getenv("TEST_MTP_CHANGE_TREE") && ++watched_calls==2) add_node(106,1,103,"new child",0);
+  if(parent==103 && getenv("TEST_MTP_BAD_TREE")) { LIBMTP_file_t *f=metadata(node(103));f->parent_id=103;return f; }
+  if(parent==103 && getenv("TEST_MTP_BAD_STORAGE")) { LIBMTP_file_t *f=metadata(node(105));f->parent_id=103;return f; }
+  LIBMTP_file_t *head=NULL,**tail=&head;
   for(int i=0;i<256;++i) if(nodes[i].id && nodes[i].sid==sid && nodes[i].parent==parent) { *tail=metadata(&nodes[i]);tail=&(*tail)->next; }
   return head;
 }
 uint32_t LIBMTP_Create_Folder(LIBMTP_mtpdevice_t *d,char *name,uint32_t parent,uint32_t sid) { (void)d;init_nodes();uint32_t id=next_id++;add_node(id,sid,parent,name,1);trace("mkdir");return id; }
 int LIBMTP_Set_Object_Filename(LIBMTP_mtpdevice_t *d,uint32_t id,char *name) { (void)d;Node *n=node(id);if(!n)return -1;free(n->name);n->name=strdup(name);trace("rename");return 0; }
-int LIBMTP_Delete_Object(LIBMTP_mtpdevice_t *d,uint32_t id) { (void)d;Node *n=node(id);if(!n)return -1;free(n->name);free(n->data);memset(n,0,sizeof(*n));trace("delete");return 0; }
+int LIBMTP_Delete_Object(LIBMTP_mtpdevice_t *d,uint32_t id) { (void)d;Node *n=node(id);if(!n)return -1;
+  const char *fail=getenv("TEST_MTP_DELETE_FAIL_ID");if(fail && id==strtoul(fail,NULL,10))return -1;
+  free(n->name);free(n->data);memset(n,0,sizeof(*n));trace("delete");
+  char event[48];snprintf(event,sizeof(event),"delete:%u",id);trace(event);return 0; }
 int LIBMTP_Get_File_To_File_Descriptor(LIBMTP_mtpdevice_t *d,uint32_t id,int fd,LIBMTP_progressfunc_t cb,const void *data) { (void)d;Node *n=node(id);if(!n)return -1;if(n->size && write(fd,n->data,n->size)!=(ssize_t)n->size)return -1;return cb(n->size,n->size,data)?-1:0; }
 static int browser_upload(LIBMTP_file_t *f,int fd) {
   init_nodes();Node *n=add_node(next_id++,f->storage_id,f->parent_id,f->filename,0);n->size=(size_t)f->filesize;n->data=calloc(n->size+1,1);

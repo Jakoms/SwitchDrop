@@ -9,6 +9,9 @@ struct RemoteStorage: Identifiable {
 struct RemoteEntry: Identifiable {
     let id: Int, parent: Int, storage: Int, name: String, folder: Bool, size: Int64
 }
+struct DeletionPreview {
+    let storage: Int, id: Int, token: String, name: String, files: Int, folders: Int, bytes: Int64
+}
 struct RemoteLocation { let id: Int, name: String }
 
 func loadDroppedURLs(_ providers: [NSItemProvider], completion: @escaping ([URL]) -> Void) {
@@ -93,11 +96,23 @@ extension Store {
     }
     func delete(_ entry: RemoteEntry) {
         guard canWrite else { return }
-        let alert = NSAlert(); alert.messageText = l("Удалить «\(entry.name)»?","Delete “\(entry.name)”?")
-        alert.informativeText = l("Файл будет удалён со Switch без корзины. Удаление непустых папок не поддерживается.","This permanently deletes the item from your Switch. Only empty folders can be deleted.")
-        alert.addButton(withTitle:l("Отмена","Cancel")); alert.addButton(withTitle:l("Удалить","Delete")).hasDestructiveAction = true
-        if alert.runModal() == .alertSecondButtonReturn { requestFS(["delete",String(entry.storage),String(entry.id)], transfer:false) }
+        pendingDeletion = nil
+        requestFS(["deleteplan",String(entry.storage),String(entry.id)], transfer:false)
     }
+    func confirmDeletion(_ plan: DeletionPreview) {
+        guard canWrite else { return }
+        let alert = NSAlert()
+        alert.messageText = l("Удалить «\(plan.name)»?", "Delete “\(plan.name)”?")
+        alert.informativeText = l(
+            "Будут удалены: файлов — \(plan.files), папок — \(plan.folders). Объём файлов: \(bytes(plan.bytes)).\n\nПапка удаляется со всем содержимым, включая вложенные папки. Корзины нет; отменить удаление нельзя.",
+            "This will delete \(plan.files) files and \(plan.folders) folders. File size: \(bytes(plan.bytes)).\n\nFolders are deleted with all their contents and subfolders. There is no Trash and no undo.")
+        alert.addButton(withTitle:l("Отмена","Cancel"))
+        alert.addButton(withTitle:l("Удалить навсегда","Delete permanently")).hasDestructiveAction = true
+        let confirmed = alert.runModal() == .alertSecondButtonReturn
+        pendingDeletion = nil
+        requestFS([confirmed ? "deletecommit" : "deletecancel",String(plan.storage),String(plan.id),plan.token], transfer:confirmed)
+    }
+
 }
 
 struct FileBrowserView: View {
@@ -177,7 +192,7 @@ struct FileBrowserView: View {
                 Spacer()
                 Text(model.canWrite ? l("Перетащите сюда файлы или папки из Finder","Drop files or folders here from Finder"):l("Изменение файлов доступно на SD Card","File changes are available on SD Card")).font(.system(size:11)).foregroundStyle(muted)
             }
-            Text(l("Здесь файлы копируются на карту. Для установки игр используйте вкладку «Игры».","This browser copies files to storage. Use the Games tab to install game packages.")).font(.system(size:11)).foregroundStyle(muted)
+            Text(l("Здесь файлы копируются на карту. Для установки игр используйте вкладку «Установка игр».","This browser copies files to storage. Use the Install games tab to install game packages.")).font(.system(size:11)).foregroundStyle(muted)
         }
     }
 }

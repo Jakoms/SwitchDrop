@@ -25,6 +25,7 @@ func translated(_ text: String) -> String {
         "Передача остановлена": "Transfer stopped",
         "Подключение не готово": "Not connected",
         "MTP-сессия закрыта": "MTP session closed",
+        "Операция остановлена. Уже выполненные изменения сохранены.": "Operation stopped. Changes already made are preserved.",
         "Switch с «SD Card install» не найден. В DBI запустите MTP Responder, подключите USB-кабель и закройте OpenMTP / Android File Transfer.": "Switch not found. Start MTP Responder in DBI, connect a USB data cable and quit OpenMTP / Android File Transfer.",
         "Не удалось получить список MTP-устройств. Закройте OpenMTP и подключите Switch заново.": "Could not list MTP devices. Quit OpenMTP and reconnect your Switch.",
         "DBI не подтвердил передачу. Проверьте экран Switch. Очередь остановлена.": "DBI did not confirm the transfer. Check the Switch screen. The queue has stopped.",
@@ -66,6 +67,18 @@ func browserMessage(_ text: String) -> String {
         "Delete failed.": "Не удалось удалить.",
         "Only empty folders can be deleted. Remove their contents explicitly first.": "Можно удалять только пустые папки. Сначала удалите их содержимое.",
         "This storage is not browsable. Use the install queue instead.": "Это хранилище предназначено для установки. Используйте очередь игр.",
+        "The folder is too large or too deeply nested to delete safely.": "Папка слишком большая или содержит слишком много уровней вложенности.",
+        "Deletion stopped: invalid item or storage.": "Удаление остановлено: неверный объект или хранилище.",
+        "Deletion stopped: the folder contains repeated object handles.": "Удаление остановлено: обнаружены повторяющиеся идентификаторы объектов.",
+        "Could not inspect the folder. Nothing was deleted.": "Не удалось прочитать содержимое папки. Ничего не удалено.",
+        "Deletion stopped: invalid parent folder.": "Удаление остановлено: неверная родительская папка.",
+        "Could not prepare deletion. Nothing was deleted.": "Не удалось подготовить удаление. Ничего не удалено.",
+        "Deletion confirmation expired. Select the item again.": "Подтверждение устарело. Выберите объект ещё раз.",
+        "Folder contents changed. Review deletion again. Nothing was deleted.": "Содержимое папки изменилось. Подтвердите удаление заново. Ничего не удалено.",
+        "Deletion stopped because an item changed. Some items may already have been deleted.": "Объект изменился. Удаление остановлено; часть объектов уже могла быть удалена.",
+        "Deletion stopped because a folder changed. Some items may already have been deleted.": "Папка изменилась. Удаление остановлено; часть объектов уже могла быть удалена.",
+        "Deletion failed. Some items may already have been deleted.": "Удаление не завершено; часть объектов уже могла быть удалена.",
+        "Операция остановлена. Уже выполненные изменения сохранены.": "Операция остановлена. Уже выполненные изменения сохранены.",
         "Folder nesting is too deep.": "Слишком большая вложенность папок."
     ]
     return messages[text] ?? text

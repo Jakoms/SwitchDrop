@@ -10,7 +10,7 @@ Browse your Switch, drop files from Finder, and send game packages through one p
 
 - **File browser:** storage picker, folder navigation, breadcrumbs, search and contextual actions.
 - **Finder drag & drop:** copy files or entire folders into the current SD folder, or drop onto a folder row.
-- **File operations:** download individual files, create folders, rename items and delete files or empty folders.
+- **File operations:** download individual files, create folders, rename items and delete files or entire folder trees after confirmation.
 - **Game queue:** NSP, NSZ, XCI and XCZ packages sent sequentially to DBI's **SD Card Install** storage.
 - **Transfer feedback:** per-file progress, speed, estimated remaining time and cancellation.
 - **Persistent connection:** browsing and transfers share one open MTP session.
@@ -31,13 +31,13 @@ Quit other MTP clients, including OpenMTP and Android File Transfer, before conn
 
 ## Files or game installation?
 
-The **Files** tab copies files into ordinary SD-card folders. It does not install game packages. Use the **Games** tab to install packages through DBI's virtual **SD Card Install** storage. A successful MTP transfer is not independent verification of a successful installation; check DBI's screen.
+The **Files** tab copies files into ordinary SD-card folders. It does not install game packages. Use the **Install games** tab to install packages through DBI's virtual **SD Card Install** storage. A successful MTP transfer is not independent verification of a successful installation; check DBI's screen.
 
 In Files, choose a storage and double-click a folder to open it. Drop files or folders from Finder into the table, or onto a folder row. Use the toolbar or context menu to download, rename or delete an item. Double-clicking a file opens a save dialog to download it.
 
-Changes are enabled only on **SD Card**. Other browsable storages are read-only in SwitchDrop. Virtual installation storages are handled by the Games tab. DBI determines which storages are exposed.
+Changes are enabled only on **SD Card**. Other browsable storages are read-only in SwitchDrop. Virtual installation storages are handled by the Install games tab. DBI determines which storages are exposed.
 
-Existing names are not silently overwritten. Downloads use a temporary file and commit without replacing an existing destination. Symlinks and filesystem special files are not uploaded. A failed folder upload may leave the files that were already copied. Deleting a non-empty folder is deliberately blocked; deletion of an individual item requires confirmation and has no Trash recovery.
+Existing names are not silently overwritten. Downloads use a temporary file and commit without replacing an existing destination. Symlinks and filesystem special files are not uploaded. A failed folder upload may leave the files that were already copied. Deletion first scans the selected item and shows file/folder counts and total file size. Nothing is removed before confirmation. The helper revalidates the tree before deleting its contents from the leaves up; changed contents require a new confirmation. Deletion has no Trash recovery. Stopping a deletion preserves changes already made.
 
 ## Transfer behavior
 
@@ -47,7 +47,7 @@ Existing names are not silently overwritten. Downloads use a temporary file and 
 - Files larger than 4 GB use 64-bit sizes. DBI manages storage-specific handling; SwitchDrop does not split local files.
 - NSZ/XCZ packages can require more space when installed than their compressed source size.
 - While transferring, the app requests prevention of idle system sleep. Closing the lid and manual sleep are not prevented.
-- Recursive upload is supported. Folder download, moving files between remote folders, recursive deletion and NAND installation are not implemented.
+- Recursive upload is supported. Folder download, moving files between remote folders and NAND installation are not implemented.
 - The current version connects to the first available Nintendo MTP device. Disconnect additional consoles if needed.
 
 Queue state: `~/Library/Application Support/SwitchDrop/queue.json`. Diagnostic log: `~/Library/Application Support/SwitchDrop/session.log`. Logs can contain local filenames; review them before sharing.
@@ -61,6 +61,7 @@ Install Xcode Command Line Tools, Python 3 for tests, and pkg-config (`brew inst
 python3 Tests/test_backend.py
 python3 Tests/test_browser.py
 python3 Tests/test_adapter.py
+python3 Tests/test_delete.py
 ```
 
 The build verifies and compiles the included libusb 1.0.30 and libmtp 1.1.23 source archives, bundles the libraries, and ad-hoc signs the application. The default deployment target is macOS 13.0; libraries are built with the same target. No network access is required by the build once pkg-config and the developer tools are installed.

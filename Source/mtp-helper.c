@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
       emit_storages(d);
       int rc=serve(d,target);
       LIBMTP_Release_Device(d); free(raw);
-      if(cancelled) message("cancelled","Передача остановлена. Проверьте результат текущей установки в DBI.");
+      if(cancelled) message("cancelled","Операция остановлена. Уже выполненные изменения сохранены.");
       else if(!rc) message("closed","MTP-сессия закрыта");
       return rc;
     }
@@ -174,7 +174,7 @@ int main(int argc, char **argv) {
         if(session) {
           int rc=serve(d,s);
           LIBMTP_Release_Device(d); free(raw);
-          if(cancelled) message("cancelled","Передача остановлена. Проверьте результат текущей установки в DBI.");
+          if(cancelled) message("cancelled","Операция остановлена. Уже выполненные изменения сохранены.");
           else if(!rc) message("closed","MTP-сессия закрыта");
           return rc;
         }

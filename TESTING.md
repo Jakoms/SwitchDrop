@@ -17,3 +17,7 @@ Hardware file-browser checks passed on a Nintendo Switch running DBI: SD-root en
 A Finder drag-and-drop test copied a 38-byte text file to the SD card, confirmed by both the application log and the refreshed directory listing. Folder navigation and the RU/EN button were checked in the live UI; the English interface also updated the macOS menu.
 
 `Tests/test_adapter.py` checks the actual adapter code with synthetic MTP property datasets: storage-object root requests, exclusion of the storage object itself, filtering direct children and unrelated storages, 64-bit sizes, and fallback when the optional operation is unsupported.
+
+`Tests/test_delete.py` covers the read-only preview, confirmation token, cancellation without deletion, recursive leaf-first deletion, revalidation of changed contents, root and cross-storage rejection, cycle rejection and partial-failure reporting.
+
+Hardware validation for 2.1.0 created a generated tree containing 3 files and 3 folders (12 bytes of file data). The preview reported these counts correctly. Cancellation kept the tree; a subsequent confirmed commit removed all 6 items. No existing user files were deleted for this test.

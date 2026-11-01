@@ -77,6 +77,7 @@ final class Store: ObservableObject {
     @Published var fsActive = false
     @Published var currentName = ""
     var fsCommand = ""
+    var pendingDeletion: DeletionPreview?
     @Published var jobs: [Job] = []
     @Published var devices: [Device] = []
     @Published var selected = ""
@@ -209,7 +210,7 @@ final class Store: ObservableObject {
         problem = ""; fsCommand = args[0]; fsActive = true; busy = true; transferring = transfer; stopping = false
         activeJobs = []; activeID = nil; sent = 0; currentSize = 0; speed = 0; currentName = ""
         gotError = false; gotDone = false; gotCancelled = false
-        status = transfer ? l("Передача файлов…", "Transferring files…") : l("Чтение / изменение папки…", "Reading / updating folder…")
+        status = args[0] == "deleteplan" ? l("Подсчёт содержимого папки…","Inspecting folder contents…") : args[0] == "deletecommit" ? l("Удаление…","Deleting…") : transfer ? l("Передача файлов…", "Transferring files…") : l("Чтение / изменение папки…", "Reading / updating folder…")
         if transfer { activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated,.idleSystemSleepDisabled], reason: "SwitchDrop file transfer") }
         do { try input.write(contentsOf: command) }
         catch { problem = error.localizedDescription; busy = false; transferring = false; fsActive = false; endActivity() }
@@ -247,7 +248,22 @@ final class Store: ObservableObject {
         case "fsstart":
             currentName=e["name"] as? String ?? ""; currentSize=(e["size"] as? NSNumber)?.int64Value ?? 0
             sent=0; speed=0; lastSent=0; lastSample=Date(); log(currentName)
+        case "deletepreview":
+            if let sid=e["storage"] as? Int, let id=e["id"] as? Int, let token=e["token"] as? String {
+                pendingDeletion=DeletionPreview(storage:sid,id:id,token:token,name:e["name"] as? String ?? "",files:e["files"] as? Int ?? 0,folders:e["folders"] as? Int ?? 0,bytes:(e["bytes"] as? NSNumber)?.int64Value ?? 0)
+            }
+        case "deleteprogress":
+            sent=(e["done"] as? NSNumber)?.int64Value ?? 0; currentSize=(e["total"] as? NSNumber)?.int64Value ?? 0
+            currentName=e["name"] as? String ?? ""; status=l("Удаление…","Deleting…")
         case "fsdone":
+            if fsCommand == "deleteplan" {
+                gotDone=true; busy=false; transferring=false; fsActive=false; endActivity()
+                if let plan=pendingDeletion { DispatchQueue.main.async { self.confirmDeletion(plan) } }
+                break
+            }
+            if fsCommand == "deletecancel" {
+                gotDone=true; busy=false; transferring=false; fsActive=false; status=l("Удаление отменено","Deletion cancelled"); endActivity(); break
+            }
             let refresh = fsCommand != "list"
             gotDone=true; busy=false; transferring=false; fsActive=false; stopping=false; speed=0
             status = refresh ? "File operation complete" : "Folder loaded"; endActivity()
@@ -366,7 +382,7 @@ struct ContentView: View {
             VStack(alignment:.leading,spacing:18) {
                 HStack {
                     VStack(alignment:.leading,spacing:6) {
-                        Text(model.viewMode=="files" ? l("Файлы на Switch","Switch files"):l("Игры → Switch","Games → Switch")).font(.system(size:28,weight:.bold))
+                        Text(model.viewMode=="files" ? l("Файлы на Switch","Switch files"):l("Установка игр","Install games")).font(.system(size:28,weight:.bold))
                         Text("USB / MTP  ·  DBI").font(.system(size:10,weight:.semibold,design:.monospaced)).tracking(1.6).foregroundStyle(muted)
                     }
                     Spacer()
@@ -401,7 +417,7 @@ struct ContentView: View {
             HStack(spacing:10) {Image(systemName:"arrow.down.forward.circle.fill").font(.system(size:30)).foregroundStyle(mint);Text("SwitchDrop").font(.system(size:18,weight:.bold))}
             VStack(spacing:6) {
                 tab("files",l("Файлы","Files"),"folder")
-                tab("games",l("Игры","Games"),"gamecontroller")
+                tab("games",l("Установка игр","Install games"),"gamecontroller")
             }
             VStack(alignment:.leading,spacing:12) {
                 HStack {Circle().fill(model.device==nil ? Color.orange:mint).frame(width:7,height:7);Text(model.device==nil ? l("НЕТ ПОДКЛЮЧЕНИЯ","NOT CONNECTED"):l("SWITCH ПОДКЛЮЧЁН","SWITCH CONNECTED")).font(.system(size:9,weight:.bold,design:.monospaced))}
@@ -419,7 +435,7 @@ struct ContentView: View {
             }
             Spacer(minLength:0)
             Text(l("Закройте OpenMTP и Android File Transfer перед подключением.","Quit OpenMTP and Android File Transfer before connecting.")).font(.system(size:10)).foregroundStyle(muted).lineSpacing(3)
-            Text("SWITCHDROP 2.0").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
+            Text("SWITCHDROP 2.1").font(.system(size:9,design:.monospaced)).tracking(1.4).foregroundStyle(muted.opacity(0.6))
         }.padding(20).frame(maxHeight:.infinity).background(panelColor)
     }
     func tab(_ id:String,_ title:String,_ icon:String)->some View {
@@ -470,7 +486,11 @@ struct ContentView: View {
                     Text(browserMessage(translated(model.status))).font(.system(size:12,weight:.medium)).lineLimit(2)
                     if model.transferring {
                         if model.fsActive {Text(model.currentName).font(.system(size:10)).foregroundStyle(muted).lineLimit(1)}
-                        Text("\(bytes(model.sent)) / \(bytes(model.currentSize)) · \(bytes(Int64(model.speed)))/\(l("с","s")) · \(model.eta)").font(.system(size:10,design:.monospaced)).foregroundStyle(muted)
+                        if model.fsCommand == "deletecommit" && model.fsActive {
+                            Text(l("Удалено объектов: \(model.sent) / \(model.currentSize)","Items deleted: \(model.sent) / \(model.currentSize)")).font(.system(size:10,design:.monospaced)).foregroundStyle(muted)
+                        } else {
+                            Text("\(bytes(model.sent)) / \(bytes(model.currentSize)) · \(bytes(Int64(model.speed)))/\(l("с","s")) · \(model.eta)").font(.system(size:10,design:.monospaced)).foregroundStyle(muted)
+                        }
                         if model.fsActive {ProgressView(value:model.progress).tint(mint).frame(maxWidth:400)}
                     } else if model.viewMode=="games" {Text(l("В очереди: \(model.pending.count) · \(bytes(model.total))","Queued: \(model.pending.count) · \(bytes(model.total))")).font(.system(size:11)).foregroundStyle(muted)}
                 }
@@ -515,7 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func mayQuit() -> Bool {
         if store.transferring {
-            let a = NSAlert(); a.messageText = l("Идёт передача файлов","A file transfer is in progress")
+            let a = NSAlert(); a.messageText = l("Выполняется операция","An operation is in progress")
             a.informativeText = l("Сначала остановите передачу и дождитесь ответа DBI. Окно останется открытым.","Stop the transfer first and wait for DBI to respond. The window will stay open.")
             a.addButton(withTitle: l("Продолжить передачу","Continue transfer")); a.addButton(withTitle: l("Остановить передачу","Stop transfer"))
             if a.runModal() == .alertSecondButtonReturn { store.cancel() }; return false
@@ -533,6 +553,9 @@ func selfTest() {
     precondition(translated(localizedError) == "Проблема" && JobState.queued.title == "В очереди")
     UI.language = originalLanguage
 
+    let previewStore=Store(stateURL:FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("queue.json"))
+    previewStore.event(["type":"deletepreview","storage":1,"id":103,"token":"1","name":"test folder","files":3,"folders":3,"bytes":12])
+    precondition(previewStore.pendingDeletion?.files == 3 && previewStore.pendingDeletion?.folders == 3 && previewStore.pendingDeletion?.token == "1")
     let frame = encodeCommand(["send", "5", "Игра\nNSP.nsp"])
     let payload = frame.dropFirst(4)
     let count = frame.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }

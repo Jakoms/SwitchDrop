@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.1.0
+
+- Renamed Games to Install games (Установка игр).
+- Added confirmed deletion of non-empty folder trees on SD Card.
+- Added a read-only deletion preview with file/folder counts and file size, session-bound confirmation tokens, tree revalidation and leaf-first execution.
+- Cancellation before confirmation leaves the tree unchanged. Stopping an active deletion keeps changes already made.
+- Added tests for missing/expired confirmation, changed contents, cycles, storage guards and partial failures; validated a generated nested tree on real DBI hardware.
+
 ## 2.0.0
 
 - Added a remote file browser with storage selection, folder navigation, breadcrumbs and search.
